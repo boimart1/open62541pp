@@ -69,4 +69,6 @@ struct AsyncResult<services::detail::TransformToken<TransformFunction, Completio
     }
 };
 
+// TODO: ensure that TransformToken properly advertises the underlying cancellation slot
+
 }  // namespace opcua

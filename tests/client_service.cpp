@@ -134,6 +134,34 @@ TEST_CASE("sendRequestAsync") {
         CHECK(executed);
     }
 
+    SECTION("Cancelled") {
+        bool executed = false;
+        CancellationSignal cancellationSignal;
+        sendReadRequest(
+            bindCancellationSlot(cancellationSignal.slot(), [&](const ReadResponse& response) {
+                CHECK(response.responseHeader().serviceResult().isBad());
+                executed = true;
+            })
+        );
+        // cancel before letting the read request run?
+        // a more robust test might require pausing the server,
+        // but I'm realizing that cancellation requests seem to also
+        // incur a blocking communication with the server :/
+
+        // as written here, this call to cancelRequestById() fails with
+        // 2156265472 -> 0x80860000 -> UA_STATUSCODE_BADSECURECHANNELCLOSED,
+        // which suggests the request is made too quickly and we need to wait
+        // for SessionActivated first, *I think*
+        cancellationSignal.emit();
+
+        CHECK_NOTHROW(client.runIterate());
+
+        // I am not sure if a cancelled request still has its callback invoked with a "bad" result,
+        // or if the callback is never invoked at all.
+        // If the callback is never called, then at the moment, cancellation can cause memory leaks.
+        CHECK(executed);
+    }
+
     SECTION("Exception in user callback") {
         sendReadRequest([](ReadResponse&) { throw std::runtime_error("Error"); });
         CHECK_THROWS_AS(client.runIterate(), std::runtime_error);

@@ -27,7 +27,9 @@ template <class CompletionToken, typename T>
 struct AsyncResult {
     template <typename Initiation, typename CompletionHandler, typename... Args>
     static void initiate(Initiation&& initiation, CompletionHandler&& handler, Args&&... args) {
-        static_assert(std::is_invocable_v<CompletionHandler, T> || std::is_invocable_v<CompletionHandler, T&>);
+        static_assert(
+            std::is_invocable_v<CompletionHandler, T> || std::is_invocable_v<CompletionHandler, T&>
+        );
         std::invoke(
             std::forward<Initiation>(initiation),
             std::forward<CompletionHandler>(handler),
@@ -149,5 +151,151 @@ using DefaultCompletionToken = UseFutureToken;
 /**
  * @}
  */
+}  // namespace opcua
+
+// ----------- Cancellation proof of concept -----------
+
+// For UA_Client_cancelByRequestId(). Move this include to a .cpp file, hide the call
+#include <open62541/client.h>
+
+namespace opcua {
+
+/* detail */
+struct CancellationValues {
+    UA_Client* client_ = nullptr;
+    UA_UInt32 requestId_ = 0;
+};
+
+class CancellationSignal;
+
+// Implementation-facing object to receive cancellation requests
+class CancellationSlot {
+public:
+    CancellationSlot() = default;
+
+    bool isConnected() const {
+        return values_ptr_ != nullptr;
+    }
+
+    void emplace(UA_Client* client, UA_UInt32 requestId) {
+        // precondition: isConnected()
+        *values_ptr_ = {client, requestId};
+    }
+
+private:
+    friend CancellationSignal;
+
+    CancellationSlot(CancellationValues* values_ptr)
+        : values_ptr_(values_ptr) {}
+
+    CancellationValues* values_ptr_ = nullptr;
+};
+
+// Basic user-facing object to send cancellation requests
+class CancellationSignal {
+public:
+    CancellationSignal() {}
+
+    // Cannot be copied or moved. The underlying handler needs to have a stable address
+    // so CancellationSlot can keep track of it.
+    CancellationSignal(const CancellationSignal&) = delete;
+    CancellationSignal& operator=(const CancellationSignal&) = delete;
+    CancellationSignal(CancellationSignal&&) = delete;
+    CancellationSignal& operator=(CancellationSignal&&) = delete;
+
+    CancellationSlot slot() {
+        return CancellationSlot(&values_);
+    }
+
+    void emit() {
+        if (values_.client_) {
+            UA_UInt32 cancelCount = 0;
+            const auto statusCode = UA_Client_cancelByRequestId(
+                values_.client_, values_.requestId_, &cancelCount
+            );
+            static_cast<void>(cancelCount);
+            static_cast<void>(statusCode);
+        }
+    }
+
+private:
+    CancellationValues values_;
+};
+
+// Type trait. Do not call directly.
+// Can be used to customize completion tokens and completion handlers.
+template <typename T>
+struct AssociatedCancellationSlot {
+    // No association by default
+    static CancellationSlot get(const T&) noexcept {
+        return CancellationSlot();
+    }
+};
+
+// User/implementation entrypoint to get cancellation slots
+template <typename T>
+[[nodiscard]] inline CancellationSlot getAssociatedCancellationSlot(const T& t) {
+    return AssociatedCancellationSlot<T>::get(t);
+}
+
+// Basic slot binder object. Multi-purpose, can be used for both completion tokens
+// and completion handlers.
+template <typename Wrapped>
+struct CancellationSlotBinder {
+    CancellationSlot slot_;
+    Wrapped wrapped_;
+
+    template <typename... Args>
+    std::invoke_result_t<Wrapped&, Args...> operator()(Args&&... args) & {
+        return wrapped_(std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    std::invoke_result_t<const Wrapped&, Args...> operator()(Args&&... args) const& {
+        return wrapped_(std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    std::invoke_result_t<Wrapped&&, Args...> operator()(Args&&... args) && {
+        return std::move(wrapped_)(std::forward<Args>(args)...);
+    }
+};
+
+// Basic slot binder adaptor function
+template <typename Wrapped>
+auto bindCancellationSlot(CancellationSlot slot, Wrapped&& wrapped) {
+    return CancellationSlotBinder<std::decay_t<Wrapped>>{slot, std::forward<Wrapped>(wrapped)};
+}
+
+// basic slot binder association
+template <typename T>
+struct AssociatedCancellationSlot<CancellationSlotBinder<T>> {
+    static CancellationSlot get(const CancellationSlotBinder<T>& binder) {
+        return binder.slot_;
+    }
+};
+
+// basic slot binder initiation forwarding
+template <typename Wrapped, typename T>
+struct AsyncResult<CancellationSlotBinder<Wrapped>, T> {
+    template <typename Initiation, typename Binder, typename... Args>
+    static auto initiate(Initiation&& initiation, Binder&& binder, Args&&... args) {
+        // 1. get slot
+        // 2. associate slot with inner completion handler
+        auto slot = binder.slot_;
+        return AsyncResult<Wrapped, T>::initiate(
+            [slot](auto&& handler, auto&& innerInitiation, auto&&... innerArgs) {
+                std::invoke(
+                    std::forward<decltype(innerInitiation)>(innerInitiation),
+                    (bindCancellationSlot)(slot, std::forward<decltype(handler)>(handler)),
+                    std::forward<decltype(innerArgs)>(innerArgs)...
+                );
+            },
+            std::forward<Binder>(binder).wrapped_,
+            std::forward<Initiation>(initiation),
+            std::forward<Args>(args)...
+        );
+    }
+};
 
 }  // namespace opcua

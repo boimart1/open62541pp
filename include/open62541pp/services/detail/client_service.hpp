@@ -68,6 +68,7 @@ struct AsyncServiceAdapter {
      *                   void(
      *                       UA_ClientAsyncServiceCallback callback,
      *                       void* userdata,
+     *                       UA_UInt32* requestId,
      *                       Args... args)
      *                   ```
      * @param token Completion token
@@ -77,13 +78,20 @@ struct AsyncServiceAdapter {
         Client& client, Initiation&& initiation, CompletionToken&& token, Args&&... args
     ) {
         static_assert(
-            std::is_invocable_v<Initiation, UA_ClientAsyncServiceCallback, void*, Args&&...>
+            std::is_invocable_v<
+                Initiation&&,
+                UA_ClientAsyncServiceCallback,
+                void*,
+                UA_UInt32*,
+                Args&&...>
         );
 
         return asyncInitiate<Response>(
             [&client](auto&& handler, auto&& innerInitiation, auto&&... innerArgs) {
                 auto& catcher = opcua::detail::getExceptionCatcher(client);
                 try {
+                    CancellationSlot cancellation_slot = getAssociatedCancellationSlot(handler);
+                    UA_UInt32 requestId = 0;
                     // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks), false positive?
                     auto callbackAndContext = makeCallbackAndContext(
                         catcher, std::forward<decltype(handler)>(handler)
@@ -92,11 +100,16 @@ struct AsyncServiceAdapter {
                         std::forward<decltype(innerInitiation)>(innerInitiation),
                         callbackAndContext.callback,
                         callbackAndContext.context.get(),
+                        cancellation_slot.isConnected() ? &requestId : nullptr,
                         std::forward<decltype(innerArgs)>(innerArgs)...
                     );
                     // initiation call might raise an exception
                     // transfer ownership to the callback afterwards
                     callbackAndContext.context.release();
+
+                    if (cancellation_slot.isConnected()) {
+                        cancellation_slot.emplace(opcua::detail::getHandle(client), requestId);
+                    }
                 } catch (...) {
                     catcher.setException(std::current_exception());
                 }
@@ -114,7 +127,10 @@ auto sendRequestAsync(Client& client, const Request& request, CompletionToken&& 
     return AsyncServiceAdapter<Response>::initiate(
         client,
         [&client](
-            UA_ClientAsyncServiceCallback callback, void* userdata, const Request& innerRequest
+            UA_ClientAsyncServiceCallback callback,
+            void* userdata,
+            UA_UInt32* requestId,
+            const Request& innerRequest
         ) {
             throwIfBad(__UA_Client_AsyncService(
                 opcua::detail::getHandle(client),
@@ -123,7 +139,7 @@ auto sendRequestAsync(Client& client, const Request& request, CompletionToken&& 
                 callback,
                 &getDataType<Response>(),
                 userdata,
-                nullptr
+                requestId
             ));
         },
         std::forward<CompletionToken>(token),

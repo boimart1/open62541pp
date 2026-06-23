@@ -137,6 +137,7 @@ auto createSubscriptionAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const CreateSubscriptionRequest& innerRequest,
             detail::SubscriptionContext* innerContextPtr
         ) {
@@ -148,7 +149,7 @@ auto createSubscriptionAsync(
                 detail::SubscriptionContext::deleteCallbackNative,
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         detail::HookToken(
@@ -227,6 +228,7 @@ auto modifySubscriptionAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const ModifySubscriptionRequest& innerRequest
         ) {
             throwIfBad(UA_Client_Subscriptions_modify_async(
@@ -234,7 +236,7 @@ auto modifySubscriptionAsync(
                 asNative(innerRequest),
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         std::forward<CompletionToken>(token),
@@ -359,6 +361,7 @@ auto deleteSubscriptionsAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const DeleteSubscriptionsRequest& innerRequest
         ) {
             throwIfBad(UA_Client_Subscriptions_delete_async(
@@ -366,7 +369,7 @@ auto deleteSubscriptionsAsync(
                 asNative(innerRequest),
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         std::forward<CompletionToken>(token),

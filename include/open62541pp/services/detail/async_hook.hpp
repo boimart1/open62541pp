@@ -47,7 +47,8 @@ struct AsyncResult<services::detail::HookToken<HookFunction, CompletionToken>, T
                 std::invoke(
                     innerInitiation,
                     [innerHook = std::move(innerHook),
-                     innerHandler = std::forward<decltype(handler)>(handler)](auto&& result
+                     innerHandler = std::forward<decltype(handler)>(handler)](
+                        auto&& result
                     ) mutable {
                         std::invoke(innerHook, std::as_const(result));
                         std::invoke(innerHandler, result);
@@ -60,5 +61,7 @@ struct AsyncResult<services::detail::HookToken<HookFunction, CompletionToken>, T
         );
     }
 };
+
+// TODO: ensure that HookToken properly advertises the underlying cancellation slot
 
 }  // namespace opcua

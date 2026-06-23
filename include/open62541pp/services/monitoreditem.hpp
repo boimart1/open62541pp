@@ -178,6 +178,7 @@ auto createMonitoredItemsDataChangeAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const CreateMonitoredItemsRequest& innerRequest,
             Span<void* const> innerContextsPtr,
             Span<const UA_Client_DataChangeNotificationCallback> innerDataChangeCallbacks,
@@ -195,7 +196,7 @@ auto createMonitoredItemsDataChangeAsync(
                 // NOLINTEND
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         detail::HookToken(
@@ -322,6 +323,7 @@ auto createMonitoredItemsEventAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const CreateMonitoredItemsRequest& innerRequest,
             Span<void* const> innerContextsPtr,
             Span<const UA_Client_EventNotificationCallback> innerEventCallbacks,
@@ -337,7 +339,7 @@ auto createMonitoredItemsEventAsync(
                 // NOLINTEND
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         detail::HookToken(
@@ -448,6 +450,7 @@ auto modifyMonitoredItemsAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const ModifyMonitoredItemsRequest& innerRequest
         ) {
             throwIfBad(UA_Client_MonitoredItems_modify_async(
@@ -455,7 +458,7 @@ auto modifyMonitoredItemsAsync(
                 asNative(innerRequest),
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         std::forward<CompletionToken>(token),
@@ -662,6 +665,7 @@ auto deleteMonitoredItemsAsync(
         [&connection](
             UA_ClientAsyncServiceCallback callback,
             void* userdata,
+            UA_UInt32* requestId,
             const DeleteMonitoredItemsRequest& innerRequest
         ) {
             throwIfBad(UA_Client_MonitoredItems_delete_async(
@@ -669,7 +673,7 @@ auto deleteMonitoredItemsAsync(
                 asNative(innerRequest),
                 callback,
                 userdata,
-                nullptr
+                requestId
             ));
         },
         std::forward<CompletionToken>(token),
